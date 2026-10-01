@@ -1,0 +1,4 @@
+# 打包用 patch 层：作为 bundle 安装时按包名引用（dsh plugin add 解析 node_modules）。
+- insert:
+  - id: zotero
+    name: dsh-zotero-plugin

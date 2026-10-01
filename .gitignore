@@ -1,0 +1,12 @@
+# 机器相关 / 本地产物
+node_modules/
+cordis.yml
+
+# deepseek-harness checkout 与调研资料（不属于本仓库）
+deepseek-harness/
+references/
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db

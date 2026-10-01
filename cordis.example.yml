@@ -1,0 +1,18 @@
+# 开发 overlay：把本插件作为额外层插入一个 Harness profile。
+#
+# 用法：复制本文件为 cordis.yml（已被 .gitignore 排除），并把
+# <ABSOLUTE_REPO_ROOT> 替换为你本仓库 clone 的绝对路径。
+# Harness 的 loader 要求插件入口为绝对路径；无需构建，直接加载 TS 源码。
+#
+# 在 deepseek-harness 仓库根运行：
+#   node --import tsx/esm apps/cli/src/bin.ts --profile web --patch <repo>/cordis.yml
+
+- insert:
+  - id: zotero
+    name: '<ABSOLUTE_REPO_ROOT>/src/index.ts'
+    # config:
+    #   host: '127.0.0.1'
+    #   port: 23119
+    #   libraryId: '0'
+    #   defaultLimit: 25
+    #   abstractPreviewChars: 300

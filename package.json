@@ -1,0 +1,38 @@
+{
+  "name": "dsh-zotero-plugin",
+  "version": "0.1.0",
+  "description": "Zotero library tools for DeepSeek Harness over the localhost local API (read) and the connector saveItems endpoint (write). No cloud, no API key.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "zotero",
+    "reference-management",
+    "literature"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "scripts",
+    "cordis.patch.yml",
+    "cordis.example.yml"
+  ],
+  "scripts": {
+    "link:harness": "node scripts/link-harness.mjs",
+    "probe": "node scripts/probe-runtime-resolution.mjs",
+    "smoke": "tsx scripts/smoke.ts",
+    "smoke:write": "tsx scripts/smoke.ts --write",
+    "verify": "tsx scripts/verify-cordis.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
