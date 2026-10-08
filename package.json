@@ -11,14 +11,19 @@
   ],
   "license": "MIT",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
   "files": [
     "src",
     "scripts",
+    "lib",
     "cordis.patch.yml",
     "cordis.example.yml"
   ],
   "scripts": {
+    "build": "node scripts/build.mjs",
     "link:harness": "node scripts/link-harness.mjs",
     "probe": "node scripts/probe-runtime-resolution.mjs",
     "smoke": "tsx scripts/smoke.ts",
@@ -27,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },

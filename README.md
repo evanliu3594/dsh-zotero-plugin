@@ -33,16 +33,22 @@ DeepSeek Harness 的 Zotero 文献库插件：10 个模型可直接调用的工�
 ## 安装到 Harness profile
 
 ```sh
-# 1. 准备依赖链接（指向你的 deepseek-harness checkout）
+# 1. 安装依赖，并把框架包链接到你的 deepseek-harness checkout
+pnpm install
 node scripts/link-harness.mjs /path/to/deepseek-harness
-node scripts/probe-runtime-resolution.mjs   # 应输出 PASS
 
-# 2. 装入 profile（Windows 桌面版 CLI 示例）
+# 2. 构建产物（官方运行时不做 TypeScript transform，只加载 lib/）
+pnpm build
+pnpm probe        # 应输出 PASS
+
+# 3. 装入 profile（Windows 桌面版 CLI 示例）
 "%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" ^
   plugin --profile <你的profile> add /path/to/dsh-zotero
 
-# 3. 完全重启 Harness，在对话里即可使用全部 zotero_* 工具
+# 4. 完全重启 Harness，在对话里即可使用全部 zotero_* 工具
 ```
+
+`dsh plugin add` 只让 pnpm `link:` 本目录、**不跑构建**，所以第 2 步不能省；之后每次改 `src/` 都要重新 `pnpm build` 再重启 Harness。
 
 ## 开发
 
@@ -50,12 +56,14 @@ node scripts/probe-runtime-resolution.mjs   # 应输出 PASS
 pnpm install
 node scripts/link-harness.mjs     # 依赖链接（见上）
 
+pnpm build        # src → lib/index.js
+pnpm probe        # artifact 面：纯 node 按包名加载产物 + 新鲜度 + 工具注册
+pnpm verify       # source 面：裸 cordis Context + 真实 ToolRuntime 验证 src 注册
 pnpm smoke        # 十个工具对真实 Zotero 逐个执行（只读）
 pnpm smoke:write  # 额外保存一条明确标注可删除的测试条目
-pnpm verify       # 裸 cordis Context + 真实 ToolRuntime 验证注册
 ```
 
-源码方式加载（无需打包，loader 直接吃 TS）：
+源码方式加载（tsx 在链路里，可以直接吃 TS；打包桌面版不行，必须先 `pnpm build`）：
 
 ```sh
 cp cordis.example.yml cordis.yml   # 填入仓库绝对路径
