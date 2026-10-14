@@ -14,6 +14,8 @@
 
 ### 变更
 
+- 在 DeepSeek Harness 桌面版 0.2.0-rc.2 + Zotero 10.0.6 上完成真实写入冒烟：插件装入 `desktop` profile 的 bundles 后，`zotero_add_item` 经 connector `saveItems` 保存一条 `journalArticle`（含两名作者、卷期页、DOI、URL、`extra`、两个标签、一条子笔记），返回 `createdKeys: ["IGGW9HV5"]`；随后读回确认字段、标签与子笔记全部落库，按标签搜索与最近添加均能查到该条目。写入路径首次被端到端执行。
+
 - `pnpm-workspace.yaml` 的 `allowBuilds` 把 esbuild 的 postinstall 改为不执行：该脚本只用 `esbuild --version` 校验平台二进制，而二进制已随 `@esbuild/win32-x64` 可选依赖一起安装，校验本身还依赖一个在受限沙箱里会被拒的子进程。不做此设置时 `pnpm <任何脚本>` 都会连带执行该校验并整体失败。
 - `tsconfig.json` 增加 `paths` 映射指向 harness checkout 的源码与声明：构建产物的 `.d.ts` 互相 `import './x.ts'`（这些文件并不存在），直接读声明会让类型检查失去模块身份，把每个工具的 render 都报成不相关的函数类型。映射只服务类型检查，运行时仍走 junction 加载 `lib/`。
 - 移除 devDependency `tsx`：项目内已无调用方。
