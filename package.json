@@ -18,6 +18,7 @@
   "files": [
     "src",
     "scripts",
+    "tests",
     "lib",
     "cordis.patch.yml",
     "cordis.example.yml"
@@ -28,6 +29,13 @@
     "probe": "node scripts/probe-runtime-resolution.mjs",
     "smoke": "node --experimental-strip-types scripts/smoke.ts",
     "smoke:write": "node --experimental-strip-types scripts/smoke.ts --write",
+    "test:contract": "node --experimental-strip-types tests/output-contract.ts",
+    "test:ab": "node --experimental-strip-types tests/source-artifact-ab.ts",
+    "test:integrity": "node tests/fix-integrity.mjs",
+    "test:acceptance": "node tests/acceptance-probe.mjs",
+    "test:acceptance:artifact": "node tests/acceptance-probe.mjs --artifact",
+    "test:status-empty": "node --experimental-strip-types tests/empty-library-status.ts",
+    "test:readback": "node --experimental-strip-types tests/readback-regression.ts",
     "typecheck": "tsc --noEmit",
     "verify": "node --experimental-strip-types scripts/verify-cordis.ts"
   },

@@ -1,9 +1,5 @@
 # dsh-zotero
 
-[English](#english) | [中文](#中文)
-
-**中文**
-
 DeepSeek Harness 的 Zotero 文献库插件：10 个模型可直接调用的工具，全部通过本机 Zotero 桌面端（`127.0.0.1:23119`）读写文献库——**不访问云端、不需要 API Key**。
 
 - 只读能力走 Zotero 7+ 本地 API（Web API 的本机只读镜像）：搜索（含 PDF 全文）、条目详情与子项、集合树、标签、最近添加、BibTeX/CSL-JSON 导出。
@@ -21,12 +17,12 @@ DeepSeek Harness 的 Zotero 文献库插件：10 个模型可直接调用的工�
 | `zotero_recent_items` | 最近添加 |
 | `zotero_get_bibtex` | BibTeX / CSL-JSON 导出（Zotero 本地直出，≤50 条/次；键须为 8 位字母数字，缺失的键由 `failedKeys` 报出） |
 | `zotero_get_selected_collection` | Zotero 当前选中集合（写入落点）与全部可选目标 |
-| `zotero_add_item` | 保存一条新文献（connector saveItems；含标签、子笔记），自动读回校验 |
+| `zotero_add_item` | 保存一条新文献（connector saveItems；含标签、子笔记），自动读回校验并返回条目 key |
 
 ## 前置条件
 
 - [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（桌面版 0.2.0-rc.2 实测可用）
-- [Zotero](https://www.zotero.org/) 7+（Zotero 10.0.3 实测可用），运行中，且
+- [Zotero](https://www.zotero.org/) 7+（Zotero 10.0.6 实测可用），运行中，且
   设置 → 高级 → **「允许其他应用程序与 Zotero 通信」** 已勾选
 - 一个 deepseek-harness 源码 checkout（框架包尚未发布到公共 npm，插件的运行时依赖需要从 checkout 解析）
 
@@ -48,7 +44,7 @@ pnpm probe        # 应输出 PASS
 # 4. 完全重启 Harness，在对话里即可使用全部 zotero_* 工具
 ```
 
-`dsh plugin add` 只让 pnpm `link:` 本目录、**不跑构建**，所以第 2 步不能省；之后每次改 `src/` 都要重新 `pnpm build` 再重启 Harness。
+`dsh plugin add` 只让 pnpm `link:` 本目录、**不跑构建**，所以第 2 步不能省；之后每次改 `src/` 都要重新 `pnpm build` 再重启 Harness。包声明了 `dsh.bundle.patch`，CLI 会把包名追加进 profile 的 `dsh.profile.bundles`，因此插件层会自动激活；若忘了 `pnpm build`，profile 加载到的仍是旧产物，`pnpm probe` 会报产物相对源码陈旧。
 
 ## 开发
 
@@ -58,13 +54,34 @@ node scripts/link-harness.mjs     # 依赖链接（见上）
 
 pnpm build        # src → lib/index.js
 pnpm probe        # artifact 面：纯 node 按包名加载产物 + 新鲜度 + 工具注册
-pnpm typecheck    # 类型面：tsc --noEmit（含 src 与 scripts）
+pnpm typecheck    # 类型面：tsc --noEmit（含 src、scripts 与 tests）
 pnpm verify       # source 面：裸 cordis Context + 真实 ToolRuntime 验证 src 注册
 pnpm smoke        # 十个工具对真实 Zotero 逐个执行（只读）
 pnpm smoke:write  # 额外保存一条明确标注可删除的测试条目
 ```
 
-`verify` 与 `smoke` 用 `node --experimental-strip-types` 启动，不依赖 tsx：tsx 和 esbuild 都要在管道上起子进程，受限沙箱会拒。为此插件源码保持**可擦除语法**（无参数属性、枚举、命名空间、装饰器），这样 strip 模式在 harness 支持的每条 Node 线上都能加载，包括移除了 transform 模式的 Node 26。
+`verify`、`smoke` 与 `tests/` 下的 TypeScript 用 `node --experimental-strip-types` 启动，不依赖 tsx：tsx 和 esbuild 都要在管道上起子进程，受限沙箱会拒。为此插件源码保持**可擦除语法**（无参数属性、枚举、命名空间、装饰器），这样 strip 模式在 harness 支持的每条 Node 线上都能加载，包括移除了 transform 模式的 Node 26。
+
+## 测试
+
+`tests/` 下的门分两类。**不需要 Zotero 的**：
+
+```sh
+pnpm test:ab          # 同一假 Zotero 服务器跑两遍：src 面与 lib 面输出必须一致
+pnpm test:integrity   # 产物是否出自当前源码，且每个修复留下的标记都还在
+```
+
+**需要本机 Zotero 运行的**（只读；`test:readback` 例外，会新建一条测试条目）：
+
+```sh
+pnpm test:contract              # 每个工具经真实 ToolRuntime 调用，验证 harness 输出校验通过
+pnpm test:acceptance            # 导出与投影的行为断言（跑 src 面）
+pnpm test:acceptance:artifact   # 同上，强制加载 lib/ 产物（打包运行时的入口）
+pnpm test:status-empty          # 空文库下 zotero_status 仍被接受
+pnpm test:readback              # 保存后读回：标题被 Zotero 改写时仍能取到 key（会写库）
+```
+
+写测试时注意两点：**必须经真实 ToolRuntime 调用**，直接调 `tool.execute()` 会绕过 harness 的 lossless-JSON 输出校验，历史上两个默认调用即失败的缺陷正是这样漏掉的；`tests/fake-zotero.ts` 提供进程内假 Zotero 与 `boot()`，用于不碰真实库的场景。
 
 源码方式加载（harness 自己的源码启动链路带 tsx，可以直接吃 TS；打包桌面版不行，必须先 `pnpm build`）：
 
@@ -90,7 +107,7 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /path/to/dsh-zot
 ## 安全模型
 
 - 文献库内容一律视为**数据而非指令**：笔记经 HTML 清洗为纯文本后再进入模型上下文。
-- 唯一的写工具 `zotero_add_item` 一次只保存**一条**，且读回校验后才报告成功。
+- 唯一的写工具 `zotero_add_item` 一次只保存**一条**；保存后读回校验，读回不到 key 时明确返回 `readBackFailed: true`，不把未确认的保存说成成功。
 - 没有更新/删除类工具——Zotero 本地 API 本身只读，模型无法绕过。
 
 ## 已知限制

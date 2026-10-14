@@ -18,6 +18,7 @@
 - 移除 `zotero_add_item` 的 `language` 参数。实测（11 个语言码 × 4 种字段名 × 4 种 payload 变体）表明：`saveItems` 对不带页面 uri 的条目一律丢弃该字段，Zotero 改写入自己的应用默认值（两次测量之间该默认值从 `zh` 变成 `en`）；带 uri 时它保留 Zotero 自己取到的值。既然该字段无法设置，与其让调用方误以为设置成功，不如删掉参数、在工具描述里写明语言字段由 Zotero 决定。其余字段对照正常：`DOI`、`volume`、`issue`、`pages`、`extra`、标签原样落库。
 - 在 DeepSeek Harness 桌面版 0.2.0-rc.2 + Zotero 10.0.6 上完成真实写入冒烟：插件装入 `desktop` profile 的 bundles 后，`zotero_add_item` 经 connector `saveItems` 保存一条 `journalArticle`（含两名作者、卷期页、DOI、URL、`extra`、两个标签、一条子笔记），返回 `createdKeys: ["IGGW9HV5"]`；随后读回确认字段、标签与子笔记全部落库，按标签搜索与最近添加均能查到该条目。写入路径首次被端到端执行。
 - `pnpm-workspace.yaml` 的 `allowBuilds` 把 esbuild 的 postinstall 改为不执行：该脚本只用 `esbuild --version` 校验平台二进制，而二进制已随 `@esbuild/win32-x64` 可选依赖一起安装，校验本身还依赖一个在受限沙箱里会被拒的子进程。不做此设置时 `pnpm <任何脚本>` 都会连带执行该校验并整体失败。
+- 把验证期临时脚本中可长期复用的部分提升为 `tests/` 并接进 `package.json`：`test:contract`（真实 ToolRuntime 输出校验）、`test:ab`（src 面与 lib 面输出必须一致，用进程内假 Zotero）、`test:acceptance` / `test:acceptance:artifact`、`test:status-empty`、`test:readback`。`tests/` 纳入 `tsconfig.json` 的 `include`，因此类型检查覆盖它们；为此修掉测试里原有的 11 个类型错误。README 增加「测试」一节，写明必须经真实 ToolRuntime 调用——直接调 `tool.execute()` 会绕过 harness 的输出校验，历史上两个默认调用即失败的缺陷正是这样漏掉的。其余一次性诊断脚本已删除。
 - `tsconfig.json` 增加 `paths` 映射指向 harness checkout 的源码与声明：构建产物的 `.d.ts` 互相 `import './x.ts'`（这些文件并不存在），直接读声明会让类型检查失去模块身份，把每个工具的 render 都报成不相关的函数类型。映射只服务类型检查，运行时仍走 junction 加载 `lib/`。
 - 移除 devDependency `tsx`：项目内已无调用方。
 - 装进 profile 前必须先 `pnpm build`：`dsh plugin add <本地路径>` 只让 pnpm `link:` 目录、不跑构建。README 的安装步骤已同步。

@@ -32,5 +32,5 @@
       "@deepseek-ai/dsh-system-prompt": ["./deepseek-harness/packages/core/system-prompt/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
 }
