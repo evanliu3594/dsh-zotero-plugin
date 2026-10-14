@@ -16,6 +16,19 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 /** One projected Zotero record: every field holds a JSON value, absent fields are omitted. */
 export type JsonObject = { [key: string]: JsonValue }
 
+/**
+ * Whether two titles are the same text, ignoring case.
+ *
+ * Zotero normalizes title spelling on save — it sentence-cases the field, so a
+ * title whose first letter is not Latin uppercase keeps its own casing while an
+ * interior capitalized word is lowered (measured: `… (ignored by Zotero)` is stored
+ * as `… (ignored by zotero)`). A byte comparison therefore fails to recognize the
+ * item that was just saved, which is why callers must compare tolerantly.
+ */
+export function sameTitle(left: string, right: string): boolean {
+  return left === right || left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0
+}
+
 export function truncate(value: string | undefined, max: number): string | undefined {
   if (!value) return undefined
   const flat = value.trim()

@@ -96,6 +96,8 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /path/to/dsh-zot
 ## 已知限制
 
 - `zotero_add_item` 的落点由 Zotero 界面当前选中状态决定（先调 `zotero_get_selected_collection` 确认）；保存时 Zotero 会短暂弹出保存进度窗。
+- `zotero_add_item` 不提供 `language` 参数：CSL 语言字段由 Zotero 自己填（该保存路径下它丢弃外部传入的值并写入应用默认值），因此本工具无法设置条目语言。
+- `zotero_add_item` 保存后按标题读回条目来取得 key；Zotero 会对标题做书写体归一化（例如句中的 `Zotero` 会被小写），所以比对按大小写不敏感进行。若仍定位不到，返回 `readBackFailed: true` 与 `hint`，条目本身已保存。
 - `zotero_list_tags` 与 `zotero_list_collections` 默认只返回 `defaultLimit`（25）条，`total` 是全库数量；需要完整清单时显式传 `limit`。
 - Zotero 的 CSL-JSON 导出体里**不含条目 key**（`id` 是引用键）。因此该格式只能逐条请求，且无法在返回体里反查条目 key；BibTeX 导出不带该限制。
 - `zotero_get_bibtex` 传了不存在的 key 时，`failedKeys` 会报出来。Zotero 接受但不导出成参考文献条目的 key（笔记、附件）只在 BibTeX 下表现为 `count` 偏小；CSL-JSON 会把它们导出成 `document` 条目。

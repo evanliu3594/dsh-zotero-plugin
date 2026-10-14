@@ -25,6 +25,7 @@ import {
   extractYear,
   formatCreators,
   noteInfo,
+  sameTitle,
   stripHtml,
   truncate,
 } from './format.ts'
@@ -575,7 +576,8 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
       'Save ONE new item into the local Zotero app through the connector endpoint — the same channel the ' +
       'browser extension uses. The item lands in the currently selected collection (zotero_get_selected_collection ' +
       'to check). tags become item tags; note becomes a child note. Read the item back with zotero_get_item to verify. ' +
-      'Zotero may briefly show its save-progress popup — that is normal.',
+      'Zotero may briefly show its save-progress popup — that is normal. The CSL language field is not settable ' +
+      'here: Zotero fills it from its own default on this save path.',
     parameters: {
       itemType: {
         type: 'string',
@@ -608,7 +610,6 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
       pages: { type: 'string' },
       publisher: { type: 'string' },
       place: { type: 'string' },
-      language: { type: 'string' },
       extra: { type: 'string', description: 'Zotero "Extra" field (citation key, notes…).' },
       tags: { type: 'array', items: { type: 'string' }, description: 'Item tags.' },
       note: { type: 'string', description: 'One child note attached to the item. Plain text (or ready HTML).' },
@@ -621,6 +622,13 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
           submitted: { type: 'boolean' },
           sessionID: { type: 'string' },
           createdKeys: { type: 'array', items: { type: 'string' }, description: 'New item keys, confirmed by reading the library back after save.' },
+          readBackFailed: {
+            type: 'boolean',
+            description:
+              'True when the item was saved but its key could not be found afterwards; createdKeys is empty ' +
+              'then. The item exists — locate it by title or tag.',
+          },
+          hint: { type: 'string', description: 'How to locate the saved item when readBackFailed is true.' },
           unsuccessful: { type: 'json', description: 'Per-item failure map when Zotero rejects the payload.' },
           savedTo: { type: 'string' },
         },
@@ -665,7 +673,6 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         pages: args.pages,
         publisher: args.publisher,
         place: args.place,
-        language: args.language,
         extra: args.extra,
       } as const
       for (const [key, value] of Object.entries(fields)) {
@@ -679,9 +686,12 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
       const data = response.data as any
       const successMap = data?.success ?? {}
       let createdKeys = Object.values(successMap).filter((key): key is string => typeof key === 'string')
+      let readBackFailed = false
 
-      // Zotero 10 does not echo new keys in the saveItems response — read the
-      // item back by exact title so the canonical value carries real keys.
+      // Zotero 10 does not echo new keys in the saveItems response — read the item
+      // back by title so the canonical value carries real keys. The comparison must
+      // tolerate Zotero's title normalization (see sameTitle), and the newest match
+      // is the one just saved because the query sorts by dateAdded descending.
       if (createdKeys.length === 0) {
         for (let attempt = 0; attempt < 3 && createdKeys.length === 0; attempt++) {
           if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 700))
@@ -694,17 +704,27 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
           }, exec.signal).catch(() => undefined)
           const rows = Array.isArray(check?.data) ? check.data : []
           createdKeys = rows
-            .flatMap((row) =>
-              row?.data?.title === title && typeof row?.key === 'string' ? [row.key as string] : [],
-            )
+            .filter((row) => typeof row?.key === 'string' && sameTitle(String(row?.data?.title ?? ''), title))
+            .map((row) => row.key as string)
             .slice(0, 3)
         }
+        // An empty result no longer reads as "the item was not created": the save
+        // already succeeded, so say the key could not be determined.
+        if (createdKeys.length === 0) readBackFailed = true
       }
 
       return {
         submitted: true,
         sessionID: sessionId,
         createdKeys,
+        ...(readBackFailed
+          ? {
+              readBackFailed: true,
+              hint:
+                '条目已保存（saveItems 返回成功），但按标题没能读回它的 key，因此 createdKeys 为空。' +
+                '用 zotero_recent_items 或 zotero_search_items 按标题/标签定位该条目。',
+            }
+          : {}),
         ...(data?.unsuccessful && Object.keys(data.unsuccessful).length > 0
           ? { unsuccessful: data.unsuccessful }
           : {}),
