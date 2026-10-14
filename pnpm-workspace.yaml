@@ -1,2 +1,7 @@
+# esbuild's postinstall only validates the platform binary that ships as the
+# @esbuild/win32-x64 optional dependency, and it validates it by spawning
+# `esbuild --version`. That spawn is denied under a piped-stdio sandbox, which
+# would otherwise fail every `pnpm <script>` invocation. The binary itself works
+# without the check, so the build script is declined.
 allowBuilds:
-  esbuild: true
+  esbuild: false

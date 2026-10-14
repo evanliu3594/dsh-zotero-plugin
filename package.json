@@ -26,14 +26,14 @@
     "build": "node scripts/build.mjs",
     "link:harness": "node scripts/link-harness.mjs",
     "probe": "node scripts/probe-runtime-resolution.mjs",
-    "smoke": "tsx scripts/smoke.ts",
-    "smoke:write": "tsx scripts/smoke.ts --write",
-    "verify": "tsx scripts/verify-cordis.ts"
+    "smoke": "node --experimental-strip-types scripts/smoke.ts",
+    "smoke:write": "node --experimental-strip-types scripts/smoke.ts --write",
+    "typecheck": "tsc --noEmit",
+    "verify": "node --experimental-strip-types scripts/verify-cordis.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "esbuild": "^0.28.2",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
   "dsh": {

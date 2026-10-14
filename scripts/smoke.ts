@@ -1,11 +1,16 @@
 /**
  * Standalone smoke run against a LIVE Zotero on localhost:23119.
  *
- *   node --import tsx/esm scripts/smoke.ts            # read-only tools
- *   node --import tsx/esm scripts/smoke.ts --write    # also save one clearly-named test item
+ *   node --experimental-strip-types scripts/smoke.ts          # read-only tools
+ *   node --experimental-strip-types scripts/smoke.ts --write  # also save one clearly-named test item
  *
  * It drives the same execute() bodies the harness dispatches, with a minimal
  * fake exec context (only `signal` is used by these tools).
+ *
+ * Launched through Node's own type stripping, not tsx: tsx and esbuild both
+ * need a child process on a pipe, which this project's sandbox denies. The
+ * plugin source stays erasable-only so strip mode can load it on every Node line
+ * the harness supports, including Node 26 (which removed transform mode).
  */
 
 import * as plugin from '../src/index.ts'

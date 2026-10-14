@@ -11,8 +11,9 @@
  *      `exports`, the same way a profile's `link:` dependency reaches it —
  *      loads and registers every tool against the real ToolRuntime.
  *
- * `pnpm verify` covers the source plane (tsx + relative import of src/index.ts);
- * this covers the artifact plane. The two are deliberately not mixed.
+ * `pnpm verify` covers the source plane (relative import of src/index.ts under
+ * Node type stripping); this covers the artifact plane. The two are deliberately
+ * not mixed.
  *
  *   node scripts/probe-runtime-resolution.mjs
  */

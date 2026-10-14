@@ -10,6 +10,12 @@ export interface FormatOptions {
   abstractPreviewChars: number
 }
 
+/** JSON-safe value; mirrors the harness `JsonValue` the tool runtime enforces. */
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+/** One projected Zotero record: every field holds a JSON value, absent fields are omitted. */
+export type JsonObject = { [key: string]: JsonValue }
+
 export function truncate(value: string | undefined, max: number): string | undefined {
   if (!value) return undefined
   const flat = value.trim()
@@ -82,49 +88,56 @@ function tagNames(raw: unknown): string[] | undefined {
 }
 
 /** Compact projection of one item for search/list results. */
-export function compactItem(raw: any, options: FormatOptions): Record<string, unknown> {
+export function compactItem(raw: any, options: FormatOptions): JsonObject {
   const data = raw?.data ?? {}
   const title = data.title ?? data.name ?? data.subject
+  const creators = formatCreators(data.creators)
+  const year = extractYear(data.date)
+  const publicationTitle = data.publicationTitle || data.proceedingsTitle || data.bookTitle || undefined
+  const abstract = truncate(data.abstractNote, options.abstractPreviewChars)
+  const tags = tagNames(data.tags)
+  const collections = Array.isArray(data.collections) && data.collections.length > 0 ? data.collections : undefined
   return {
-    key: raw?.key,
-    itemType: data.itemType,
-    title,
-    creators: formatCreators(data.creators),
-    year: extractYear(data.date),
-    date: data.date || undefined,
-    publicationTitle: data.publicationTitle || data.proceedingsTitle || data.bookTitle || undefined,
-    doi: data.DOI || undefined,
-    url: data.url || undefined,
-    abstract: truncate(data.abstractNote, options.abstractPreviewChars),
-    tags: tagNames(data.tags),
-    collections: Array.isArray(data.collections) && data.collections.length > 0 ? data.collections : undefined,
-    dateAdded: data.dateAdded || undefined,
-    creatorSummary: raw?.meta?.creatorSummary || undefined,
+    ...(raw?.key ? { key: raw.key } : {}),
+    ...(data.itemType ? { itemType: data.itemType } : {}),
+    ...(title ? { title } : {}),
+    ...(creators !== undefined ? { creators } : {}),
+    ...(year !== undefined ? { year } : {}),
+    ...(data.date ? { date: data.date } : {}),
+    ...(publicationTitle ? { publicationTitle } : {}),
+    ...(data.DOI ? { doi: data.DOI } : {}),
+    ...(data.url ? { url: data.url } : {}),
+    ...(abstract ? { abstract } : {}),
+    ...(tags ? { tags } : {}),
+    ...(collections ? { collections } : {}),
+    ...(data.dateAdded ? { dateAdded: data.dateAdded } : {}),
+    ...(raw?.meta?.creatorSummary ? { creatorSummary: raw.meta.creatorSummary } : {}),
   }
 }
 
 /** Attachment projection; `path` keeps Zotero's `storage:…` prefix for imported files. */
-export function attachmentInfo(raw: any): Record<string, unknown> {
+export function attachmentInfo(raw: any): JsonObject {
   const data = raw?.data ?? {}
   return {
-    key: raw?.key,
-    title: data.title,
-    contentType: data.contentType || undefined,
-    linkMode: data.linkMode || undefined,
-    filename: data.filename || undefined,
-    path: data.path || undefined,
-    url: data.url || undefined,
+    ...(raw?.key ? { key: raw.key } : {}),
+    ...(data.title ? { title: data.title } : {}),
+    ...(data.contentType ? { contentType: data.contentType } : {}),
+    ...(data.linkMode ? { linkMode: data.linkMode } : {}),
+    ...(data.filename ? { filename: data.filename } : {}),
+    ...(data.path ? { path: data.path } : {}),
+    ...(data.url ? { url: data.url } : {}),
   }
 }
 
 /** Child-note projection: plain text keeps the model safe from embedded markup. */
-export function noteInfo(raw: any): Record<string, unknown> {
+export function noteInfo(raw: any): JsonObject {
   const data = raw?.data ?? {}
   const html = typeof data.note === 'string' ? data.note : ''
+  const text = truncate(stripHtml(html), 4000)
   return {
-    key: raw?.key,
-    text: truncate(stripHtml(html), 4000),
-    parentItem: data.parentItem || undefined,
-    dateAdded: data.dateAdded || undefined,
+    ...(raw?.key ? { key: raw.key } : {}),
+    ...(text ? { text } : {}),
+    ...(data.parentItem ? { parentItem: data.parentItem } : {}),
+    ...(data.dateAdded ? { dateAdded: data.dateAdded } : {}),
   }
 }

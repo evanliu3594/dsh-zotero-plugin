@@ -3,8 +3,9 @@
  *
  * The official DSH runtime imports plugin entries through plain Node ESM with no
  * TypeScript transform — vendor/loader does a bare `import()`, and the harness
- * asserts its shipped composition loads zero `.ts`. So `src/` alone only runs
- * under the tsx dev overlay; a packaged profile loads `lib/`.
+ * asserts its shipped composition loads zero `.ts`. So `src/` only runs under a
+ * type-stripping runner (the harness's own tsx dev overlay, or
+ * `node --experimental-strip-types`); a packaged profile loads `lib/`.
  *
  * `@deepseek-ai/*` stays external: those packages are not on npm and resolve at
  * runtime through the junctions scripts/link-harness.mjs creates. Declaring them

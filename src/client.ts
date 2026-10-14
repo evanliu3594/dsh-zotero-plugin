@@ -9,14 +9,22 @@
  * Kept dependency-free (plain fetch) so it can be exercised standalone.
  */
 
+/**
+ * Rejection from the Zotero local server.
+ *
+ * Fields are assigned explicitly rather than declared as constructor parameter
+ * properties: this plugin's source stays erasable-only, so `node --experimental-strip-types`
+ * and Node 26 strip mode can both load it (Node 26 removed transform mode).
+ */
 export class ZoteroError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-    readonly url?: string,
-  ) {
+  readonly status?: number
+  readonly url?: string
+
+  constructor(message: string, status?: number, url?: string) {
     super(message)
     this.name = 'ZoteroError'
+    this.status = status
+    this.url = url
   }
 }
 
@@ -52,9 +60,11 @@ function encodePathSegment(value: string): string {
 
 export class ZoteroLocalClient {
   readonly base: string
+  readonly options: ZoteroClientOptions
   private readonly headers: Record<string, string>
 
-  constructor(readonly options: ZoteroClientOptions) {
+  constructor(options: ZoteroClientOptions) {
+    this.options = options
     this.base = `http://${options.host}:${options.port}`
     this.headers = {
       'Zotero-Allowed-Request': 'true',
@@ -139,13 +149,16 @@ export class ZoteroLocalClient {
   /**
    * Fetch every page of a list endpoint (100 per page, Zotero's page cap) up to `cap` rows.
    * Local API honors `Total-Results`, so termination is header-driven with a data-driven fallback.
+   *
+   * Rows stay `any`: the callers project them onto their own JSON-safe output types,
+   * and narrowing here would only force casts at every field read.
    */
-  async apiAll(path: string, params: QueryParams, cap: number, signal?: AbortSignal): Promise<ApiPage<unknown[]>> {
-    const rows: unknown[] = []
+  async apiAll(path: string, params: QueryParams, cap: number, signal?: AbortSignal): Promise<ApiPage<any[]>> {
+    const rows: any[] = []
     let start = 0
     let total: number | undefined
     while (rows.length < cap) {
-      const page = await this.api<unknown[]>(path, { ...params, limit: 100, start }, signal)
+      const page = await this.api<any[]>(path, { ...params, limit: 100, start }, signal)
       const batch = Array.isArray(page.data) ? page.data : []
       rows.push(...batch)
       total = page.total ?? (batch.length < 100 ? start + batch.length : undefined)

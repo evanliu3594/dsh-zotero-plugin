@@ -15,7 +15,9 @@
 import { randomBytes } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Config } from './config.ts'
+import { ZoteroError } from './client.ts'
 import type { ZoteroLocalClient } from './client.ts'
+import type { JsonValue } from './format.ts'
 import {
   attachmentInfo,
   compactItem,
@@ -35,11 +37,24 @@ const JSON_PAGE_PROPERTIES = {
 } as const
 
 /** Every tool returns one canonical JSON value rendered as pretty JSON text. */
-const jsonRender = (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+const jsonRender = (_args: unknown, value: unknown) =>
+  [{ type: 'text', text: JSON.stringify(value, null, 2) } satisfies { type: 'text'; text: string }]
 
 function clampLimit(requested: number | undefined, config: Config): number {
   const base = requested ?? config.defaultLimit
   return Math.min(Math.max(1, Math.floor(base)), config.maxLimit)
+}
+
+/**
+ * Value for a reported row count, or `undefined` to omit the field.
+ *
+ * `Total-Results` is a server header: a malformed one must not reach the result,
+ * where the harness rejects a non-integer or a negative zero ("value is not
+ * lossless JSON"). `Number.isFinite` alone would pass both.
+ */
+function totalOrUndefined(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isInteger(value) || value < 0 || Object.is(value, -0)) return undefined
+  return value
 }
 
 function isPlainish(text: string): boolean {
@@ -49,6 +64,19 @@ function isPlainish(text: string): boolean {
 function noteToHtml(text: string): string {
   if (!isPlainish(text)) return text
   return `<p>${escapeHtml(text).replaceAll('\n\n', '</p><p>').replaceAll('\n', '<br/>')}</p>`
+}
+
+/** Count synthesized BibTeX entries, tolerating a `comment`-prefixed preamble. */
+function countBibtexEntries(text: string): number {
+  return text.match(/^@\w+\s*[{(]/gm)?.length ?? 0
+}
+
+/** Normalize a CSL-JSON export body to an array; a single-item body may arrive bare. */
+function cslJsonArray(text: string): JsonValue[] {
+  const parsed: unknown = JSON.parse(text)
+  if (Array.isArray(parsed)) return parsed as JsonValue[]
+  if (parsed !== null && typeof parsed === 'object') return [parsed as JsonValue]
+  throw new Error(`Zotero 返回的 CSL-JSON 不是条目数组：${text.slice(0, 200)}`)
 }
 
 export function buildTools(client: ZoteroLocalClient, config: Config) {
@@ -93,8 +121,11 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         return {
           zoteroRunning: true,
           localApiAvailable: true,
-          zoteroVersion: ping.version,
-          libraryName: sample?.library?.name,
+          // Omitted rather than written as `undefined`: the connector does not always
+          // send X-Zotero-Version, and an empty library reports no library name. Either
+          // one as an undefined property makes the harness reject this diagnostic tool.
+          ...(typeof ping.version === 'string' ? { zoteroVersion: ping.version } : {}),
+          ...(typeof sample?.library?.name === 'string' ? { libraryName: sample.library.name } : {}),
           host: config.host,
           port: config.port,
         }
@@ -102,7 +133,7 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         return {
           zoteroRunning: true,
           localApiAvailable: false,
-          zoteroVersion: ping.version,
+          ...(typeof ping.version === 'string' ? { zoteroVersion: ping.version } : {}),
           host: config.host,
           port: config.port,
           hint: `Zotero 正在运行但本地 API 不可用：${error instanceof Error ? error.message : String(error)}`,
@@ -161,8 +192,9 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         start: args.start,
       }, exec.signal)
       const rows = Array.isArray(page.data) ? page.data : []
+      const total = totalOrUndefined(page.total)
       return {
-        total: page.total ?? undefined,
+        ...(total !== undefined ? { total } : {}),
         start: args.start ?? 0,
         limit,
         items: rows.map((row) => compactItem(row, formatOptions)),
@@ -201,7 +233,12 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !raw.key) {
         throw new Error(`未找到条目 ${args.itemKey}。请用 zotero_search_items 先拿到有效的 key。`)
       }
-      const result: Record<string, unknown> = { key: raw.key, itemType: raw.data?.itemType, data: raw.data, meta: raw.meta }
+      const result: Record<string, unknown> = {
+        ...(raw.key ? { key: raw.key } : {}),
+        ...(raw.data?.itemType ? { itemType: raw.data.itemType } : {}),
+        ...(raw.data !== undefined ? { data: raw.data } : {}),
+        ...(raw.meta !== undefined ? { meta: raw.meta } : {}),
+      }
       if (args.includeChildren) {
         const children = await client.api<any[]>(`items/${args.itemKey}/children`, {}, exec.signal)
         const rows = Array.isArray(children.data) ? children.data : []
@@ -280,20 +317,27 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         return parts.join(' / ')
       }
 
+      // Every field is emitted only when it holds a value: the harness rejects a tool
+      // result whose JSON contains an `undefined` property ("value is not lossless JSON"),
+      // and a top-level collection has no parentCollection while `meta` counts can be absent.
       const projected = rows.map((row) => ({
-        key: row.key,
-        name: row.data?.name,
+        ...(row.key ? { key: row.key } : {}),
+        ...(row.data?.name ? { name: row.data.name } : {}),
         path: pathOf(row),
-        parentCollection: row.data?.parentCollection || undefined,
-        numItems: row.meta?.numItems,
-        numSubcollections: row.meta?.numCollections,
+        ...(row.data?.parentCollection ? { parentCollection: row.data.parentCollection } : {}),
+        ...(typeof row.meta?.numItems === 'number' ? { numItems: row.meta.numItems } : {}),
+        ...(typeof row.meta?.numCollections === 'number' ? { numSubcollections: row.meta.numCollections } : {}),
       }))
 
       const needle = args.prefix?.toLowerCase()
       const filtered = needle ? projected.filter((c) => c.path?.toLowerCase().includes(needle)) : projected
       const limit = args.limit === undefined ? config.maxLimit : clampLimit(args.limit, config)
       filtered.sort((a, b) => String(a.path).localeCompare(String(b.path), 'zh-Hans-CN'))
-      return { total: all.total ?? rows.length, matched: filtered.length, collections: filtered.slice(0, limit) }
+      return {
+        total: totalOrUndefined(all.total) ?? rows.length,
+        matched: filtered.length,
+        collections: filtered.slice(0, limit),
+      }
     },
   })
 
@@ -325,7 +369,11 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
       const needle = args.prefix?.toLowerCase()
       const filtered = needle ? names.filter((tag) => tag.toLowerCase().startsWith(needle)) : names
       const limit = clampLimit(args.limit, config)
-      return { total: all.total ?? names.length, matched: filtered.length, tags: filtered.sort().slice(0, limit) }
+      return {
+        total: totalOrUndefined(all.total) ?? names.length,
+        matched: filtered.length,
+        tags: filtered.sort().slice(0, limit),
+      }
     },
   })
 
@@ -350,7 +398,13 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         limit,
       }, exec.signal)
       const rows = Array.isArray(page.data) ? page.data : []
-      return { total: page.total ?? undefined, start: 0, limit, items: rows.map((row) => compactItem(row, formatOptions)) }
+      const total = totalOrUndefined(page.total)
+      return {
+        ...(total !== undefined ? { total } : {}),
+        start: 0,
+        limit,
+        items: rows.map((row) => compactItem(row, formatOptions)),
+      }
     },
   })
 
@@ -364,7 +418,7 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         type: 'array',
         items: { type: 'string' },
         required: true,
-        description: 'Item keys; at least one, at most 50.',
+        description: 'Zotero item keys (8 letters or digits each); at least one, at most 50.',
       },
       format: { type: 'string', enum: ['bibtex', 'csljson'], description: 'Export format, default bibtex.' },
     },
@@ -374,8 +428,18 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         additionalProperties: false,
         properties: {
           format: { type: 'string' },
-          count: { type: 'integer' },
+          requested: { type: 'integer', description: 'Distinct item keys requested.' },
+          count: { type: 'integer', description: 'Items actually present in the export.' },
           export: { type: 'string', description: 'The exported bibliography text.' },
+          failedKeys: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Requested keys Zotero did not export; the key may be wrong or the item unavailable. ' +
+              'BibTeX checks the keys before exporting, and a key Zotero accepts but will not export ' +
+              'as a reference (a note or attachment) appears as a lower `count` without an entry here. ' +
+              'CSL-JSON reports every failed key and does export notes and attachments.',
+          },
         },
       },
       render: jsonRender,
@@ -384,17 +448,79 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
       const keys = [...new Set(args.itemKeys)]
       if (keys.length === 0) throw new Error('itemKeys 至少需要一个条目 key。')
       if (keys.length > 50) throw new Error(`itemKeys 一次最多导出 50 条（收到 ${keys.length} 条）。`)
-      const format = args.format ?? 'bibtex'
-      if (keys.length === 1) {
-        const page = await client.apiText(`items/${keys[0]}`, { format }, exec.signal)
-        const count = format === 'csljson' ? 1 : (page.data.match(/^@\w+\{/gm)?.length ?? 1)
-        return { format, count, export: page.data }
+      // A malformed key must never reach the query string: the client drops empty
+      // parameter values, so `itemKey: ''` would leave the request unfiltered and
+      // Zotero would answer with the whole library (measured: one empty key exported
+      // 1685 items / 6.6 MB through the bibtex path).
+      for (const key of keys) {
+        if (!/^[A-Za-z0-9]{8}$/.test(key)) {
+          throw new Error(`非法条目 key ${JSON.stringify(key)}：Zotero key 是 8 位字母数字。`)
+        }
       }
-      const page = await client.apiText('items', { itemKey: keys.join(','), format }, exec.signal)
-      const count = format === 'csljson'
-        ? (JSON.parse(page.data) as unknown[]).length
-        : (page.data.match(/^@\w+\{/gm)?.length ?? 0)
-      return { format, count, export: page.data }
+      const format = args.format ?? 'bibtex'
+      const missing = (error: unknown): boolean =>
+        error instanceof ZoteroError && error.status === 404
+      const failedKeys: string[] = []
+
+      if (format === 'csljson') {
+        // Zotero's local API ignores a comma-separated `itemKey` list for csljson and
+        // answers with an arbitrary library slice (measured on Zotero 10.0.6: two keys
+        // yielded four unrelated items). Request each key separately: a single-item
+        // request returns exactly that item.
+        //
+        // The body carries no item key — CSL `id` is the citation key — so a returned
+        // entry cannot be correlated back to the requested key. The guard below is
+        // structural: a single-item request that answers with several entries shows the
+        // endpoint stopped filtering, which is the failure this branch exists to avoid.
+        const items: JsonValue[] = []
+        for (const key of keys) {
+          let rows: JsonValue[]
+          try {
+            const page = await client.apiText(`items/${key}`, { format }, exec.signal)
+            rows = cslJsonArray(page.data)
+          } catch (error) {
+            // A 404 means that key is not in the library; anything else (server error,
+            // timeout, cancellation, a bug here) must surface instead of looking like a
+            // missing item.
+            if (missing(error)) failedKeys.push(key)
+            else throw error
+            continue
+          }
+          if (rows.length > 1) {
+            throw new Error(
+              `Zotero 对单个条目 ${key} 的 CSL-JSON 请求返回了 ${rows.length} 条：本地 API 未按 key 过滤，` +
+                '导出结果不可信，已中止。',
+            )
+          }
+          if (rows.length === 0) failedKeys.push(key)
+          else items.push(rows[0])
+        }
+        return {
+          format,
+          requested: keys.length,
+          count: items.length,
+          export: JSON.stringify(items, null, 2),
+          failedKeys,
+        }
+      }
+
+      // Bibtex honors the comma-separated key list, so one request keeps the export atomic.
+      // Its body carries neither item keys nor per-key errors, so a bad key can only be
+      // detected before the export: one metadata probe per key, and its 404 is the report.
+      for (const key of keys) {
+        try {
+          await client.api(`items/${key}`, {}, exec.signal)
+        } catch (error) {
+          if (missing(error)) failedKeys.push(key)
+          else throw error
+        }
+      }
+      const present = keys.filter((key) => !failedKeys.includes(key))
+      if (present.length === 0) {
+        return { format, requested: keys.length, count: 0, export: '', failedKeys }
+      }
+      const page = await client.apiText('items', { itemKey: present.join(','), format }, exec.signal)
+      return { format, requested: keys.length, count: countBibtexEntries(page.data), export: page.data, failedKeys }
     },
   })
 
@@ -422,15 +548,23 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
     async execute(_args, exec) {
       const response = await client.connector('getSelectedCollection', {}, exec.signal)
       const data = response.data as any
+      // Optional fields are omitted rather than written as `undefined`: the harness
+      // rejects a result whose JSON carries an undefined property.
+      const targets = Array.isArray(data?.targets)
+        ? data.targets.slice(0, 100).map((target: any) => ({
+            ...(target.id ? { id: target.id } : {}),
+            ...(target.name ? { name: target.name } : {}),
+            ...(typeof target.level === 'number' ? { level: target.level } : {}),
+            ...(typeof target.recent === 'boolean' ? { recent: target.recent } : {}),
+          }))
+        : []
       return {
-        libraryID: data?.libraryID,
-        libraryName: data?.libraryName,
-        editable: data?.editable,
+        ...(typeof data?.libraryID === 'number' ? { libraryID: data.libraryID } : {}),
+        ...(data?.libraryName ? { libraryName: data.libraryName } : {}),
+        ...(typeof data?.editable === 'boolean' ? { editable: data.editable } : {}),
         selectedId: data?.id ?? null,
-        selectedName: data?.name,
-        targets: Array.isArray(data?.targets)
-          ? data.targets.slice(0, 100).map((t: any) => ({ id: t.id, name: t.name, level: t.level, recent: t.recent }))
-          : [],
+        ...(data?.name ? { selectedName: data.name } : {}),
+        targets,
       }
     },
   })
@@ -560,8 +694,9 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
           }, exec.signal).catch(() => undefined)
           const rows = Array.isArray(check?.data) ? check.data : []
           createdKeys = rows
-            .filter((row) => row?.data?.title === title)
-            .map((row) => row.key as string)
+            .flatMap((row) =>
+              row?.data?.title === title && typeof row?.key === 'string' ? [row.key as string] : [],
+            )
             .slice(0, 3)
         }
       }
@@ -570,7 +705,9 @@ export function buildTools(client: ZoteroLocalClient, config: Config) {
         submitted: true,
         sessionID: sessionId,
         createdKeys,
-        unsuccessful: data?.unsuccessful && Object.keys(data.unsuccessful).length > 0 ? data.unsuccessful : undefined,
+        ...(data?.unsuccessful && Object.keys(data.unsuccessful).length > 0
+          ? { unsuccessful: data.unsuccessful }
+          : {}),
         savedTo: 'Zotero 当前选中的集合/文库（zotero_get_selected_collection 查看）',
       }
     },

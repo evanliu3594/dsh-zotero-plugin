@@ -8,7 +8,29 @@
     "strict": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    /*
+     * The @deepseek-ai/* packages resolve through node_modules junctions to the
+     * harness checkout (scripts/link-harness.mjs), but their built declarations
+     * import each other as './x.ts' — files that do not exist next to the .d.ts.
+     * A program reading those declarations loses type identity and reports every
+     * tool render as an unrelated function type.
+     *
+     * Mapping to checkout source gives each package one module identity.
+     * `dsh-tools` must come from source because its declarations are the broken
+     * ones. `cordis` comes from its built declarations, because its source needs
+     * compiler options this plugin does not set (noUncheckedIndexedAccess,
+     * exactOptionalPropertyTypes) and would otherwise fail this program.
+     *
+     * These mappings serve type checking only; runtime resolution still goes
+     * through the junctions to the built lib/, unchanged.
+     */
+    "paths": {
+      "@deepseek-ai/cordis": ["./deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/schemastery": ["./deepseek-harness/vendor/schemastery/src/index.ts"],
+      "@deepseek-ai/dsh-tools": ["./deepseek-harness/packages/core/tools/src/index.ts"],
+      "@deepseek-ai/dsh-system-prompt": ["./deepseek-harness/packages/core/system-prompt/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts"]
 }

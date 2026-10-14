@@ -19,7 +19,7 @@ DeepSeek Harness 的 Zotero 文献库插件：10 个模型可直接调用的工�
 | `zotero_list_collections` | 全部集合 + 层级路径 + 计数 |
 | `zotero_list_tags` | 标签列表（前缀过滤） |
 | `zotero_recent_items` | 最近添加 |
-| `zotero_get_bibtex` | BibTeX / CSL-JSON 导出（Zotero 本地直出，≤50 条/次） |
+| `zotero_get_bibtex` | BibTeX / CSL-JSON 导出（Zotero 本地直出，≤50 条/次；键须为 8 位字母数字，缺失的键由 `failedKeys` 报出） |
 | `zotero_get_selected_collection` | Zotero 当前选中集合（写入落点）与全部可选目标 |
 | `zotero_add_item` | 保存一条新文献（connector saveItems；含标签、子笔记），自动读回校验 |
 
@@ -58,12 +58,15 @@ node scripts/link-harness.mjs     # 依赖链接（见上）
 
 pnpm build        # src → lib/index.js
 pnpm probe        # artifact 面：纯 node 按包名加载产物 + 新鲜度 + 工具注册
+pnpm typecheck    # 类型面：tsc --noEmit（含 src 与 scripts）
 pnpm verify       # source 面：裸 cordis Context + 真实 ToolRuntime 验证 src 注册
 pnpm smoke        # 十个工具对真实 Zotero 逐个执行（只读）
 pnpm smoke:write  # 额外保存一条明确标注可删除的测试条目
 ```
 
-源码方式加载（tsx 在链路里，可以直接吃 TS；打包桌面版不行，必须先 `pnpm build`）：
+`verify` 与 `smoke` 用 `node --experimental-strip-types` 启动，不依赖 tsx：tsx 和 esbuild 都要在管道上起子进程，受限沙箱会拒。为此插件源码保持**可擦除语法**（无参数属性、枚举、命名空间、装饰器），这样 strip 模式在 harness 支持的每条 Node 线上都能加载，包括移除了 transform 模式的 Node 26。
+
+源码方式加载（harness 自己的源码启动链路带 tsx，可以直接吃 TS；打包桌面版不行，必须先 `pnpm build`）：
 
 ```sh
 cp cordis.example.yml cordis.yml   # 填入仓库绝对路径
@@ -93,6 +96,9 @@ node --import tsx/esm apps/cli/src/bin.ts --profile web --patch /path/to/dsh-zot
 ## 已知限制
 
 - `zotero_add_item` 的落点由 Zotero 界面当前选中状态决定（先调 `zotero_get_selected_collection` 确认）；保存时 Zotero 会短暂弹出保存进度窗。
+- `zotero_list_tags` 与 `zotero_list_collections` 默认只返回 `defaultLimit`（25）条，`total` 是全库数量；需要完整清单时显式传 `limit`。
+- Zotero 的 CSL-JSON 导出体里**不含条目 key**（`id` 是引用键）。因此该格式只能逐条请求，且无法在返回体里反查条目 key；BibTeX 导出不带该限制。
+- `zotero_get_bibtex` 传了不存在的 key 时，`failedKeys` 会报出来。Zotero 接受但不导出成参考文献条目的 key（笔记、附件）只在 BibTeX 下表现为 `count` 偏小；CSL-JSON 会把它们导出成 `document` 条目。
 - 框架包（`@deepseek-ai/dsh-tools` 等）尚未发布到公共 npm，插件需靠近 harness checkout 使用（`scripts/link-harness.mjs` 负责链接）；包发布后此步骤可删。
 
 ## 致谢
